@@ -109,28 +109,36 @@ connect_bd_net [get_bd_pins myip_aes_bram_0/S00_AXI_ACLK] \
 connect_bd_net [get_bd_pins myip_aes_bram_0/S00_AXI_ARESETN] \
                [get_bd_pins rst_clk_wiz_1_100M/peripheral_aresetn]
 
-## ---- Connect AXI: JTAG Master → AXI Interconnect → AES Slave ------------
-puts "INFO: Connecting AXI bus..."
-apply_bd_automation \
-    -rule xilinx.com:bd_rule:axi4 \
-    -config {
-        Master     "/jtag_axi_0"
-        Slave      "/myip_aes_bram_0/S00_AXI"
-        Clk_master "/clk_wiz_1/clk_out1"
-        Clk_slave  "Auto"
-        Clk_xbar   "Auto"
-        intc_ip    "New AXI Interconnect"
-        master_apm "0"
-    } \
-    [get_bd_intf_pins myip_aes_bram_0/S00_AXI]
+## ---- AXI Interconnect (1 master, 1 slave) --------------------------------
+puts "INFO: Adding AXI Interconnect..."
+create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_0
+set_property CONFIG.NUM_MI 1 [get_bd_cells axi_interconnect_0]
 
-## ---- Assign address to AES IP --------------------------------------------
-## Fixed at 0x44A00000 so run_aes_jtag.tcl addresses match
+connect_bd_net [get_bd_pins axi_interconnect_0/ACLK]        [get_bd_pins clk_wiz_1/clk_out1]
+connect_bd_net [get_bd_pins axi_interconnect_0/ARESETN]     [get_bd_pins rst_clk_wiz_1_100M/interconnect_aresetn]
+connect_bd_net [get_bd_pins axi_interconnect_0/S00_ACLK]    [get_bd_pins clk_wiz_1/clk_out1]
+connect_bd_net [get_bd_pins axi_interconnect_0/S00_ARESETN] [get_bd_pins rst_clk_wiz_1_100M/peripheral_aresetn]
+connect_bd_net [get_bd_pins axi_interconnect_0/M00_ACLK]    [get_bd_pins clk_wiz_1/clk_out1]
+connect_bd_net [get_bd_pins axi_interconnect_0/M00_ARESETN] [get_bd_pins rst_clk_wiz_1_100M/peripheral_aresetn]
+
+## ---- Connect AXI: JTAG Master → Interconnect → AES Slave ----------------
+puts "INFO: Connecting AXI bus..."
+connect_bd_intf_net [get_bd_intf_pins jtag_axi_0/M_AXI]          \
+                    [get_bd_intf_pins axi_interconnect_0/S00_AXI]
+connect_bd_intf_net [get_bd_intf_pins axi_interconnect_0/M00_AXI] \
+                    [get_bd_intf_pins myip_aes_bram_0/S00_AXI]
+
+## ---- Assign fixed address 0x44A00000 to AES IP ---------------------------
+puts "INFO: Assigning addresses..."
 assign_bd_address
-set_property offset 0x44A00000 \
-    [get_bd_addr_segs {jtag_axi_0/Data/SEG_myip_aes_bram_0_reg0}]
-set_property range 64K \
-    [get_bd_addr_segs {jtag_axi_0/Data/SEG_myip_aes_bram_0_reg0}]
+set seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces jtag_axi_0/Data]]
+if { $seg ne "" } {
+    set_property offset 0x44A00000 $seg
+    set_property range  64K        $seg
+    puts "INFO: AES IP mapped at 0x44A00000 (64K)"
+} else {
+    puts "WARNING: Could not find address segment — check Address Editor"
+}
 
 ## --------------------------------------------------------------------------
 ## 5. Validate and save

@@ -49,8 +49,7 @@ proc aes_read {offset} {
         -len   1            \
         -force]
     run_hw_axi $txn
-    set result [report_hw_axi_txn -t rd_txn]
-    return $result
+    return [get_property DATA [get_hw_axi_txns rd_txn]]
 }
 
 ## ── Encrypt: write plaintext + key, read ciphertext ─────────────────────────
