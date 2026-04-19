@@ -81,9 +81,9 @@ FPGA-AES/
 │   └── nexys4_ddr_jtag.xdc          # XDC (sys_clk only — no UART needed)
 │
 ├── scripts/
-│   ├── create_project_jtag.tcl      # Creates JTAG-to-AXI block design
-│   ├── build_jtag.tcl               # Full build: synth → impl → bitstream
-│   └── run_aes_jtag.tcl             # JTAG test: writes vectors, reads ciphertext
+│   ├── run_all.tcl    # ⭐ Single script: create project + synth + impl + bitstream + program + test
+│   ├── sim.tcl        # Vivado behavioral simulation
+│   └── sim_aes.tcl    # AES-specific simulation
 │
 ├── export/
 │   └── aes_system.xsa               # Hardware platform (for Vitis if needed)
@@ -166,51 +166,48 @@ The AES core is fully **combinational/pipelined** — ciphertext is available im
 ## Build Instructions
 
 ### Prerequisites
-- Vivado 2019.2 (only — no Vitis, no SDK needed)
+- Vivado 2019.2 (only — no Vitis, no SDK, no firmware needed)
 - Nexys 4 DDR connected via USB-PROG (JTAG)
 
-### 1. Build bitstream
+### One command does everything:
 
 ```bash
-vivado -mode batch -source /path/to/FPGA-AES/scripts/build_jtag.tcl
+vivado -mode batch -source /path/to/FPGA-AES/scripts/run_all.tcl
 ```
 
-This runs:
-- `create_project_jtag.tcl` — creates the project + block design
-- Synthesis → Implementation → Bitstream generation
+`run_all.tcl` does all of this automatically:
 
-Output:
+| Step | Action |
+|---|---|
+| 1 | Creates Vivado project + JTAG-to-AXI block design |
+| 2 | Runs Synthesis |
+| 3 | Runs Implementation |
+| 4 | Generates Bitstream |
+| 5 | Programs the FPGA (if connected) |
+| 6 | Runs FIPS-197 AES test vectors over JTAG |
+
+### Build bitstream only (no FPGA needed)
+
+Edit `run_all.tcl` line 18:
+```tcl
+set PROGRAM_AND_TEST 0
+```
+Then run the same command. Bitstream will be at:
 ```
 vivado_projects/aes_nexys4_jtag/aes_nexys4_jtag.runs/impl_1/aes_jtag_system_wrapper.bit
 ```
 
-### 2. Program FPGA
+### Program manually afterwards
 
-Open Vivado → Hardware Manager → Auto Connect → Program Device → select `.bit` file above.
+Open Vivado → Hardware Manager → Auto Connect → Program Device → select the `.bit` file above.
 
----
-
-## Testing on FPGA via JTAG
-
-After programming, run in the **Vivado Tcl Console**:
+Then in the **Vivado Tcl Console**, run any custom AES encryption:
 
 ```tcl
-source /path/to/FPGA-AES/scripts/run_aes_jtag.tcl
-```
-
-The script:
-1. Writes plaintext + key to AXI registers via JTAG
-2. Reads ciphertext back
-3. Prints results for 3 test vectors
-
-To run a custom encryption in the Tcl console:
-
-```tcl
-# Write plaintext (4 x 32-bit words, LSB first)
-create_hw_axi_txn w0 [get_hw_axis hw_axi_1] -type WRITE -address 0x44A00000 -data 00000000 -len 1 -force
+# Write plaintext words (LSB first)
+create_hw_axi_txn w0 [get_hw_axis hw_axi_1] -type WRITE -address 0x44A00000 -data E0370734 -len 1 -force
 run_hw_axi w0
-
-# Read ciphertext word 0
+# ... repeat for other words, then read back:
 create_hw_axi_txn r0 [get_hw_axis hw_axi_1] -type READ -address 0x44A00020 -len 1 -force
 run_hw_axi r0
 get_property DATA [get_hw_axi_txns r0]
